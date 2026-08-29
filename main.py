@@ -40,7 +40,7 @@ def get_categories_keyboard(is_admin: bool = False):
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     await state.clear()
-    is_admin = (message.from_user.id == ADMIN_ID)
+    is_admin = (int(message.from_user.id) == int(ADMIN_ID))
     await message.answer(
         "Привет! Выбери категорию контента с помощью кнопок ниже:",
         reply_markup=get_categories_keyboard(is_admin)
@@ -49,7 +49,7 @@ async def cmd_start(message: Message, state: FSMContext):
 @router.message(Command("get"))
 async def cmd_get_video(message: Message, state: FSMContext):
     await state.clear()
-    is_admin = (message.from_user.id == ADMIN_ID)
+    is_admin = (int(message.from_user.id) == int(ADMIN_ID))
     await message.answer(
         "Выбери категорию видео:",
         reply_markup=get_categories_keyboard(is_admin)
@@ -58,7 +58,7 @@ async def cmd_get_video(message: Message, state: FSMContext):
 # Нажатие на кнопку «Добавить видео»
 @router.callback_query(F.data == "admin_add_video")
 async def start_add_video(callback: CallbackQuery, state: FSMContext):
-    if callback.from_user.id != ADMIN_ID:
+    if int(callback.from_user.id) != int(ADMIN_ID):
         await callback.answer("У вас нет прав!", show_alert=True)
         return
     
@@ -82,7 +82,7 @@ async def save_video_file(message: Message, state: FSMContext):
     title = message.caption or "Без названия"
     await add_video(file_id=file_id, title=title)
     await state.clear()
-    is_admin = (message.from_user.id == ADMIN_ID)
+    is_admin = (int(message.from_user.id) == int(ADMIN_ID))
     await message.reply("🎉 Видео успешно сохранено в базу!", reply_markup=get_categories_keyboard(is_admin))
 
 # Загрузка ссылки после авторизации
@@ -91,7 +91,7 @@ async def save_video_link(message: Message, state: FSMContext):
     url = message.text.strip()
     await add_video(youtube_url=url, title="YouTube ролик")
     await state.clear()
-    is_admin = (message.from_user.id == ADMIN_ID)
+    is_admin = (int(message.from_user.id) == int(ADMIN_ID))
     await message.reply("🎉 Ссылка успешно сохранена в базу!", reply_markup=get_categories_keyboard(is_admin))
 
 # Обработка выбора категорий контента
