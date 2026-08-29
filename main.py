@@ -1,9 +1,10 @@
 import asyncio
 import logging
 import os
+import yt_dlp
 from aiogram import Bot, Dispatcher, F, Router
 from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, FSInputFile
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.fsm.context import FSMContext
@@ -15,12 +16,10 @@ SECRET_PASSWORD = "webhook1100"
 
 router = Router()
 
-# Состояния FSM для проверки пароля и загрузки контента
 class AdminUploadState(StatesGroup):
     waiting_for_password = State()
     waiting_for_content = State()
 
-# Клавиатура категорий (с кнопкой добавления для админа)
 def get_categories_keyboard(is_admin: bool = False):
     keyboard = [
         [
@@ -55,7 +54,6 @@ async def cmd_get_video(message: Message, state: FSMContext):
         reply_markup=get_categories_keyboard(is_admin)
     )
 
-# Нажатие на кнопку «Добавить видео»
 @router.callback_query(F.data == "admin_add_video")
 async def start_add_video(callback: CallbackQuery, state: FSMContext):
     if int(callback.from_user.id) != int(ADMIN_ID):
@@ -66,7 +64,6 @@ async def start_add_video(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("🔒 Введите пароль для доступа к загрузке:")
     await callback.answer()
 
-# Проверка введенного пароля
 @router.message(AdminUploadState.waiting_for_password)
 async def process_password(message: Message, state: FSMContext):
     if message.text.strip() == SECRET_PASSWORD:
@@ -75,7 +72,6 @@ async def process_password(message: Message, state: FSMContext):
     else:
         await message.answer("❌ Неверный пароль. Попробуй еще раз или напиши /start для отмены.")
 
-# Загрузка видео-файла после авторизации
 @router.message(AdminUploadState.waiting_for_content, F.video)
 async def save_video_file(message: Message, state: FSMContext):
     file_id = message.video.file_id
@@ -85,7 +81,6 @@ async def save_video_file(message: Message, state: FSMContext):
     is_admin = (int(message.from_user.id) == int(ADMIN_ID))
     await message.reply("🎉 Видео успешно сохранено в базу!", reply_markup=get_categories_keyboard(is_admin))
 
-# Загрузка ссылки после авторизации
 @router.message(AdminUploadState.waiting_for_content, F.text.startswith("http"))
 async def save_video_link(message: Message, state: FSMContext):
     url = message.text.strip()
@@ -94,7 +89,26 @@ async def save_video_link(message: Message, state: FSMContext):
     is_admin = (int(message.from_user.id) == int(ADMIN_ID))
     await message.reply("🎉 Ссылка успешно сохранена в базу!", reply_markup=get_categories_keyboard(is_admin))
 
-# Обработка выбора категорий контента
+# Функция скачивания видео с помощью yt-dlp
+async def download_youtube_video(url: str) -> str:
+    output_template = "temp_video.mp4"
+    if os.path.exists(output_template):
+        os.remove(output_template)
+        
+    ydl_opts = {
+        'format': 'mp4/best',
+        'outtmpl': output_template,
+        'quiet': True,
+        'max_filesize': 50 * 1024 * 1024, # Ограничение до 50 МБ для Telegram
+    }
+    
+    def _download():
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+
+    await asyncio.to_thread(_download)
+    return output_template if os.path.exists(output_template) else None
+
 @router.callback_query(F.data.startswith("category_"))
 async def process_category_callback(callback: CallbackQuery):
     category = callback.data.split("_")[1]
@@ -111,8 +125,18 @@ async def process_category_callback(callback: CallbackQuery):
     if file_id:
         await callback.message.answer_video(file_id, caption=caption)
     elif youtube_url:
-        await callback.message.answer(f"Категория: {category.upper()}\n{youtube_url}")
-        
+        await callback.message.answer("⏳ Скачиваю видео с ссылки, подождите...")
+        try:
+            file_path = await download_youtube_video(youtube_url)
+            if file_path:
+                video_file = FSInputFile(file_path)
+                await callback.message.answer_video(video_file, caption=caption)
+                os.remove(file_path) # Удаляем файл после отправки
+            else:
+                await callback.message.answer(f"Не удалось скачать видео по ссылке: {youtube_url}")
+        except Exception as e:
+            await callback.message.answer(f"Ошибка при скачивании: {str(e)}")
+            
     await callback.answer()
 
 async def main():
