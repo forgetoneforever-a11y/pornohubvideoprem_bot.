@@ -15,12 +15,12 @@ SECRET_PASSWORD = "webhook1100"
 
 router = Router()
 
-# Состояния для FSM (машины состояний)
+# Состояния FSM для проверки пароля и загрузки контента
 class AdminUploadState(StatesGroup):
     waiting_for_password = State()
     waiting_for_content = State()
 
-# Клавиатура главного меню (для обычных пользователей и админа)
+# Клавиатура категорий (с кнопкой добавления для админа)
 def get_categories_keyboard(is_admin: bool = False):
     keyboard = [
         [
@@ -38,7 +38,8 @@ def get_categories_keyboard(is_admin: bool = False):
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
 
 @router.message(Command("start"))
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, state: FSMContext):
+    await state.clear()
     is_admin = (message.from_user.id == ADMIN_ID)
     await message.answer(
         "Привет! Выбери категорию контента с помощью кнопок ниже:",
@@ -46,14 +47,15 @@ async def cmd_start(message: Message):
     )
 
 @router.message(Command("get"))
-async def cmd_get_video(message: Message):
+async def cmd_get_video(message: Message, state: FSMContext):
+    await state.clear()
     is_admin = (message.from_user.id == ADMIN_ID)
     await message.answer(
         "Выбери категорию видео:",
         reply_markup=get_categories_keyboard(is_admin)
     )
 
-# Обработка нажатия на кнопку «Добавить видео»
+# Нажатие на кнопку «Добавить видео»
 @router.callback_query(F.data == "admin_add_video")
 async def start_add_video(callback: CallbackQuery, state: FSMContext):
     if callback.from_user.id != ADMIN_ID:
@@ -73,24 +75,26 @@ async def process_password(message: Message, state: FSMContext):
     else:
         await message.answer("❌ Неверный пароль. Попробуй еще раз или напиши /start для отмены.")
 
-# Прием видео-файла после успешной авторизации
+# Загрузка видео-файла после авторизации
 @router.message(AdminUploadState.waiting_for_content, F.video)
 async def save_video_file(message: Message, state: FSMContext):
     file_id = message.video.file_id
     title = message.caption or "Без названия"
     await add_video(file_id=file_id, title=title)
     await state.clear()
-    await message.reply("🎉 Видео успешно сохранено в базу!", reply_markup=get_categories_keyboard(is_admin=True))
+    is_admin = (message.from_user.id == ADMIN_ID)
+    await message.reply("🎉 Видео успешно сохранено в базу!", reply_markup=get_categories_keyboard(is_admin))
 
-# Прием ссылки после успешной авторизации
+# Загрузка ссылки после авторизации
 @router.message(AdminUploadState.waiting_for_content, F.text.startswith("http"))
 async def save_video_link(message: Message, state: FSMContext):
     url = message.text.strip()
     await add_video(youtube_url=url, title="YouTube ролик")
     await state.clear()
-    await message.reply("🎉 Ссылка успешно сохранена в базу!", reply_markup=get_categories_keyboard(is_admin=True))
+    is_admin = (message.from_user.id == ADMIN_ID)
+    await message.reply("🎉 Ссылка успешно сохранена в базу!", reply_markup=get_categories_keyboard(is_admin))
 
-# Обработка выбора категорий видео
+# Обработка выбора категорий контента
 @router.callback_query(F.data.startswith("category_"))
 async def process_category_callback(callback: CallbackQuery):
     category = callback.data.split("_")[1]
@@ -118,7 +122,6 @@ async def main():
         return
         
     bot = Bot(token=TOKEN)
-    # Используем MemoryStorage для работы состояний (FSM)
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
     
